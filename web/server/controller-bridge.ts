@@ -119,7 +119,6 @@ export class ControllerBridge {
 
     // Resolve permission preset
     const PRESET_MAP: Record<string, string> = {
-      full: "bypassPermissions",
       edit: "acceptEdits",
       plan: "plan",
       ask: "default",

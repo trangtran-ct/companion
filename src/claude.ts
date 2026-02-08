@@ -173,7 +173,7 @@ function buildEnv(opts: ClaudeOptions): Record<string, string> {
 
 function resolvePermissions(
   preset?: PermissionPreset
-): { permissionMode: PermissionMode } {
+): { permissionMode?: PermissionMode } {
   switch (preset) {
     case "edit":
       return { permissionMode: "acceptEdits" };
@@ -183,17 +183,23 @@ function resolvePermissions(
       return { permissionMode: "default" };
     case "full":
     default:
-      return { permissionMode: "bypassPermissions" };
+      // Don't pass --permission-mode flag at all for "full" —
+      // the CLI default already allows everything and skipping
+      // the flag avoids issues with idle detection.
+      return { permissionMode: undefined };
   }
 }
 
 function waitForReady(
   controller: ClaudeCodeController,
   agentName: string,
-  timeoutMs = 60_000
+  timeoutMs = 15_000
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
+    let settled = false;
+
     const timer = setTimeout(() => {
+      if (settled) return;
       cleanup();
       reject(
         new Error(
@@ -202,15 +208,18 @@ function waitForReady(
       );
     }, timeoutMs);
 
-    const onIdle = (name: string) => {
-      if (name === agentName) {
+    // Resolve early on idle or message — agent is confirmed responsive
+    const onReady = (name: string) => {
+      if (name === agentName && !settled) {
+        settled = true;
         cleanup();
         resolve();
       }
     };
 
     const onExit = (name: string, code: number | null) => {
-      if (name === agentName) {
+      if (name === agentName && !settled) {
+        settled = true;
         cleanup();
         reject(
           new Error(
@@ -220,13 +229,28 @@ function waitForReady(
       }
     };
 
+    // Resolve when the agent process is confirmed running.
+    // Claude Code agents don't reliably send idle_notification on initial boot,
+    // so we also listen for agent:spawned to resolve after the process starts.
+    const onSpawned = (name: string) => {
+      if (name === agentName && !settled) {
+        settled = true;
+        cleanup();
+        resolve();
+      }
+    };
+
     const cleanup = () => {
       clearTimeout(timer);
-      controller.removeListener("idle", onIdle);
+      controller.removeListener("idle", onReady);
+      controller.removeListener("message", onReady);
+      controller.removeListener("agent:spawned", onSpawned);
       controller.removeListener("agent:exited", onExit);
     };
 
-    controller.on("idle", onIdle);
+    controller.on("idle", onReady);
+    controller.on("message", onReady);
+    controller.on("agent:spawned", onSpawned);
     controller.on("agent:exited", onExit);
   });
 }
@@ -245,6 +269,7 @@ export class Agent extends EventEmitter<AgentEvents> {
   private handle: AgentHandle;
   private ownsController: boolean;
   private disposed = false;
+  private boundListeners: Array<{ event: string; fn: (...args: any[]) => void }> = [];
 
   private constructor(
     controller: ClaudeCodeController,
@@ -344,13 +369,47 @@ export class Agent extends EventEmitter<AgentEvents> {
     return this.handle.isRunning;
   }
 
-  /** Send a message and wait for the response. */
+  /**
+   * Send a message and wait for the response.
+   *
+   * Uses event-based waiting (via the controller's InboxPoller) instead of
+   * polling `readUnread()` directly, which avoids a race condition where the
+   * poller marks inbox messages as read before `receive()` can see them.
+   */
   async ask(question: string, opts?: AskOptions): Promise<string> {
     this.ensureNotDisposed();
-    return this.handle.ask(question, {
-      timeout: opts?.timeout ?? 120_000,
-      pollInterval: opts?.pollInterval,
+    const timeout = opts?.timeout ?? 120_000;
+
+    // Register listener BEFORE sending so we don't miss the response
+    const responsePromise = new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Timeout (${timeout}ms) waiting for response`));
+      }, timeout);
+
+      const onMsg = (text: string) => {
+        cleanup();
+        resolve(text);
+      };
+      const onExit = (code: number | null) => {
+        cleanup();
+        reject(new Error(`Agent exited (code=${code}) before responding`));
+      };
+      const cleanup = () => {
+        clearTimeout(timer);
+        this.removeListener("message", onMsg);
+        this.removeListener("exit", onExit);
+      };
+
+      this.on("message", onMsg);
+      this.on("exit", onExit);
     });
+
+    // Agents in teammate mode don't always use SendMessage unprompted.
+    // Append a reminder so responses come back through the inbox reliably.
+    const wrapped = `${question}\n\nIMPORTANT: You MUST send your complete answer back using the SendMessage tool. Do NOT just think your answer — use the SendMessage tool to reply.`;
+    await this.handle.send(wrapped);
+    return responsePromise;
   }
 
   /** Send a message without waiting for a response. */
@@ -362,9 +421,30 @@ export class Agent extends EventEmitter<AgentEvents> {
   /** Wait for the next response from this agent. */
   async receive(opts?: AskOptions): Promise<string> {
     this.ensureNotDisposed();
-    return this.handle.receive({
-      timeout: opts?.timeout ?? 120_000,
-      pollInterval: opts?.pollInterval,
+    const timeout = opts?.timeout ?? 120_000;
+
+    return new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Timeout (${timeout}ms) waiting for response`));
+      }, timeout);
+
+      const onMsg = (text: string) => {
+        cleanup();
+        resolve(text);
+      };
+      const onExit = (code: number | null) => {
+        cleanup();
+        reject(new Error(`Agent exited (code=${code}) before responding`));
+      };
+      const cleanup = () => {
+        clearTimeout(timer);
+        this.removeListener("message", onMsg);
+        this.removeListener("exit", onExit);
+      };
+
+      this.on("message", onMsg);
+      this.on("exit", onExit);
     });
   }
 
@@ -375,6 +455,7 @@ export class Agent extends EventEmitter<AgentEvents> {
   async close(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.unwireEvents();
 
     if (this.ownsController) {
       await this.controller.shutdown();
@@ -386,6 +467,7 @@ export class Agent extends EventEmitter<AgentEvents> {
   /** Mark as disposed (used by Session when it closes). */
   markDisposed(): void {
     this.disposed = true;
+    this.unwireEvents();
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
@@ -395,74 +477,81 @@ export class Agent extends EventEmitter<AgentEvents> {
   private wireEvents(): void {
     const agentName = this.handle.name;
 
-    this.controller.on("message", (name: string, msg: InboxMessage) => {
+    const onMessage = (name: string, msg: InboxMessage) => {
       if (name === agentName) this.emit("message", msg.text);
-    });
-
-    this.controller.on("idle", (name: string) => {
+    };
+    const onIdle = (name: string) => {
       if (name === agentName) this.emit("idle");
-    });
-
-    this.controller.on(
-      "permission:request",
-      (name: string, parsed: PermissionRequestMessage) => {
-        if (name !== agentName) return;
-        this.emit("permission", {
-          requestId: parsed.requestId,
-          toolName: parsed.toolName,
-          description: parsed.description,
-          input: parsed.input,
-          approve: () =>
-            this.controller.sendPermissionResponse(
-              agentName,
-              parsed.requestId,
-              true
-            ),
-          reject: () =>
-            this.controller.sendPermissionResponse(
-              agentName,
-              parsed.requestId,
-              false
-            ),
-        });
-      }
-    );
-
-    this.controller.on(
-      "plan:approval_request",
-      (name: string, parsed: PlanApprovalRequestMessage) => {
-        if (name !== agentName) return;
-        this.emit("plan", {
-          requestId: parsed.requestId,
-          planContent: parsed.planContent,
-          approve: (feedback?: string) =>
-            this.controller.sendPlanApproval(
-              agentName,
-              parsed.requestId,
-              true,
-              feedback
-            ),
-          reject: (feedback: string) =>
-            this.controller.sendPlanApproval(
-              agentName,
-              parsed.requestId,
-              false,
-              feedback
-            ),
-        });
-      }
-    );
-
-    this.controller.on(
-      "agent:exited",
-      (name: string, code: number | null) => {
-        if (name === agentName) this.emit("exit", code);
-      }
-    );
-
-    this.controller.on("error", (err: Error) => {
+    };
+    const onPermission = (name: string, parsed: PermissionRequestMessage) => {
+      if (name !== agentName) return;
+      let handled = false;
+      const guard = (fn: () => Promise<void>) => () => {
+        if (handled) return Promise.resolve();
+        handled = true;
+        return fn();
+      };
+      this.emit("permission", {
+        requestId: parsed.requestId,
+        toolName: parsed.toolName,
+        description: parsed.description,
+        input: parsed.input,
+        approve: guard(() =>
+          this.controller.sendPermissionResponse(agentName, parsed.requestId, true)
+        ),
+        reject: guard(() =>
+          this.controller.sendPermissionResponse(agentName, parsed.requestId, false)
+        ),
+      });
+    };
+    const onPlan = (name: string, parsed: PlanApprovalRequestMessage) => {
+      if (name !== agentName) return;
+      let handled = false;
+      const guard = (fn: (...a: any[]) => Promise<void>) => (...args: any[]) => {
+        if (handled) return Promise.resolve();
+        handled = true;
+        return fn(...args);
+      };
+      this.emit("plan", {
+        requestId: parsed.requestId,
+        planContent: parsed.planContent,
+        approve: guard((feedback?: string) =>
+          this.controller.sendPlanApproval(agentName, parsed.requestId, true, feedback)
+        ),
+        reject: guard((feedback: string) =>
+          this.controller.sendPlanApproval(agentName, parsed.requestId, false, feedback)
+        ),
+      });
+    };
+    const onExit = (name: string, code: number | null) => {
+      if (name === agentName) this.emit("exit", code);
+    };
+    const onError = (err: Error) => {
       this.emit("error", err);
-    });
+    };
+
+    this.controller.on("message", onMessage);
+    this.controller.on("idle", onIdle);
+    this.controller.on("permission:request", onPermission);
+    this.controller.on("plan:approval_request", onPlan);
+    this.controller.on("agent:exited", onExit);
+    this.controller.on("error", onError);
+
+    this.boundListeners = [
+      { event: "message", fn: onMessage },
+      { event: "idle", fn: onIdle },
+      { event: "permission:request", fn: onPermission },
+      { event: "plan:approval_request", fn: onPlan },
+      { event: "agent:exited", fn: onExit },
+      { event: "error", fn: onError },
+    ];
+  }
+
+  private unwireEvents(): void {
+    for (const { event, fn } of this.boundListeners) {
+      this.controller.removeListener(event, fn);
+    }
+    this.boundListeners = [];
   }
 
   private wireBehavior(behavior?: AgentBehavior): void {

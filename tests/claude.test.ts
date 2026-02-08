@@ -80,9 +80,9 @@ describe("buildEnv", () => {
 });
 
 describe("resolvePermissions", () => {
-  it('maps "full" to bypassPermissions', () => {
+  it('maps "full" to undefined (no flag)', () => {
     expect(resolvePermissions("full")).toEqual({
-      permissionMode: "bypassPermissions",
+      permissionMode: undefined,
     });
   });
 
@@ -104,9 +104,9 @@ describe("resolvePermissions", () => {
     });
   });
 
-  it("defaults to bypassPermissions when undefined", () => {
+  it("defaults to undefined (no flag) when preset is undefined", () => {
     expect(resolvePermissions(undefined)).toEqual({
-      permissionMode: "bypassPermissions",
+      permissionMode: undefined,
     });
   });
 });
@@ -163,6 +163,15 @@ describe("waitForReady", () => {
     await expect(promise).rejects.toThrow(
       'Agent "my-agent" exited before becoming ready (code=1)'
     );
+  });
+
+  it("resolves when message event fires for the agent", async () => {
+    const promise = waitForReady(ctrl, "my-agent", 5_000);
+
+    // Simulate agent sending a message (means it's alive)
+    setTimeout(() => ctrl.emit("message", "my-agent", { text: "hello" }), 50);
+
+    await promise; // should resolve without throwing
   });
 });
 

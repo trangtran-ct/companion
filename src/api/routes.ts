@@ -264,7 +264,6 @@ export function buildRoutes(state: ApiState) {
       ? body.permissions
       : undefined;
     const PRESET_MAP: Record<string, string> = {
-      full: "bypassPermissions",
       edit: "acceptEdits",
       plan: "plan",
       ask: "default",
