@@ -1,49 +1,189 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useStore } from "../store.js";
-import { AgentCard } from "./AgentCard.js";
-import { SpawnDialog } from "./SpawnDialog.js";
+import { api } from "../api.js";
+import { connectSession, disconnectSession } from "../ws.js";
+import { NewSessionDialog } from "./NewSessionDialog.js";
 
 export function Sidebar() {
-  const [showSpawn, setShowSpawn] = useState(false);
-  const agents = useStore((s) => s.agents);
+  const [showNew, setShowNew] = useState(false);
+  const sessions = useStore((s) => s.sessions);
+  const sdkSessions = useStore((s) => s.sdkSessions);
+  const currentSessionId = useStore((s) => s.currentSessionId);
+  const setCurrentSession = useStore((s) => s.setCurrentSession);
+  const darkMode = useStore((s) => s.darkMode);
+  const toggleDarkMode = useStore((s) => s.toggleDarkMode);
+  const cliConnected = useStore((s) => s.cliConnected);
+  const sessionStatus = useStore((s) => s.sessionStatus);
 
-  const sorted = Array.from(agents.values()).sort((a, b) => {
-    if (a.status === "exited" && b.status !== "exited") return 1;
-    if (a.status !== "exited" && b.status === "exited") return -1;
-    return b.spawnedAt - a.spawnedAt;
-  });
+  // Poll for SDK sessions on mount
+  useEffect(() => {
+    let active = true;
+    async function poll() {
+      try {
+        const list = await api.listSessions();
+        if (active) useStore.getState().setSdkSessions(list);
+      } catch {
+        // server not ready
+      }
+    }
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  function handleSelectSession(sessionId: string) {
+    if (currentSessionId === sessionId) return;
+    // Disconnect from old session, connect to new
+    if (currentSessionId) {
+      disconnectSession(currentSessionId);
+    }
+    setCurrentSession(sessionId);
+    connectSession(sessionId);
+  }
+
+  async function handleCreateSession(opts: { model?: string; permissionMode?: string; cwd?: string }) {
+    const result = await api.createSession(opts);
+    const sessionId = result.sessionId;
+    // Switch to new session
+    if (currentSessionId) {
+      disconnectSession(currentSessionId);
+    }
+    setCurrentSession(sessionId);
+    connectSession(sessionId);
+  }
+
+  // Combine sessions from WsBridge state + SDK sessions list
+  const allSessionIds = new Set<string>();
+  for (const id of sessions.keys()) allSessionIds.add(id);
+  for (const s of sdkSessions) allSessionIds.add(s.sessionId);
+
+  const sessionList = Array.from(allSessionIds).map((id) => {
+    const bridgeState = sessions.get(id);
+    const sdkInfo = sdkSessions.find((s) => s.sessionId === id);
+    return {
+      id,
+      model: bridgeState?.model || sdkInfo?.model || "",
+      cwd: bridgeState?.cwd || sdkInfo?.cwd || "",
+      isConnected: cliConnected.get(id) ?? false,
+      status: sessionStatus.get(id) ?? null,
+      sdkState: sdkInfo?.state ?? null,
+      createdAt: sdkInfo?.createdAt ?? 0,
+    };
+  }).sort((a, b) => b.createdAt - a.createdAt);
 
   return (
-    <aside className="w-72 bg-gray-900/50 backdrop-blur-sm flex flex-col shrink-0">
-      <div className="p-3">
+    <aside className="w-[260px] h-full flex flex-col bg-cc-sidebar border-r border-cc-border">
+      {/* Header */}
+      <div className="p-4 pb-3">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-7 h-7 rounded-lg bg-cc-primary flex items-center justify-center">
+            <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 text-white">
+              <path d="M8 9h8M8 13h5M21 12c0 4.97-4.03 9-9 9a8.96 8.96 0 01-4.57-1.24L3 21l1.24-4.43A8.96 8.96 0 013 12c0-4.97 4.03-9 9-9s9 4.03 9 9z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <span className="text-sm font-semibold text-cc-fg tracking-tight">Claude Code</span>
+        </div>
+
         <button
-          onClick={() => setShowSpawn(true)}
-          className="w-full py-2.5 text-sm font-medium rounded-lg bg-gradient-to-b from-indigo-500 to-indigo-600 hover:from-indigo-400 hover:to-indigo-500 text-white shadow-lg shadow-indigo-500/10 transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.98]"
+          onClick={() => setShowNew(true)}
+          className="w-full py-2 px-3 text-sm font-medium rounded-[10px] bg-cc-primary hover:bg-cc-primary-hover text-white transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer"
         >
-          <span className="text-base leading-none font-light">+</span> Spawn Agent
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+            <path d="M8 3v10M3 8h10" />
+          </svg>
+          New Session
         </button>
       </div>
 
-      <div className="px-3 pb-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Agents</span>
-          <div className="flex-1 h-px bg-gray-800" />
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
-        {sorted.length === 0 ? (
-          <p className="px-3 py-8 text-xs text-gray-600 text-center leading-relaxed">
-            No agents yet.<br />Spawn one to get started.
+      {/* Session list */}
+      <div className="flex-1 overflow-y-auto px-2 pb-2">
+        {sessionList.length === 0 ? (
+          <p className="px-3 py-8 text-xs text-cc-muted text-center leading-relaxed">
+            No sessions yet.
           </p>
         ) : (
-          sorted.map((agent) => (
-            <AgentCard key={agent.name} agent={agent} />
-          ))
+          <div className="space-y-0.5">
+            {sessionList.map((s) => {
+              const isActive = currentSessionId === s.id;
+              const shortId = s.id.slice(0, 8);
+              const label = s.model || shortId;
+              const dirName = s.cwd ? s.cwd.split("/").pop() : "";
+              const isRunning = s.status === "running";
+              const isCompacting = s.status === "compacting";
+
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => handleSelectSession(s.id)}
+                  className={`w-full px-3 py-2.5 text-left rounded-[10px] transition-all duration-100 cursor-pointer group ${
+                    isActive
+                      ? "bg-cc-active"
+                      : "hover:bg-cc-hover"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex shrink-0">
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          s.sdkState === "exited"
+                            ? "bg-cc-muted opacity-40"
+                            : s.isConnected
+                            ? isRunning
+                              ? "bg-cc-success"
+                              : isCompacting
+                              ? "bg-cc-warning"
+                              : "bg-cc-success opacity-60"
+                            : "bg-cc-muted opacity-40"
+                        }`}
+                      />
+                      {isRunning && s.isConnected && (
+                        <span className="absolute inset-0 w-2 h-2 rounded-full bg-cc-success/40 animate-[pulse-dot_1.5s_ease-in-out_infinite]" />
+                      )}
+                    </span>
+                    <span className="text-[13px] font-medium truncate flex-1 text-cc-fg">
+                      {label}
+                    </span>
+                  </div>
+                  {dirName && (
+                    <p className="text-[11px] text-cc-muted truncate mt-0.5 ml-4">
+                      {dirName}
+                    </p>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
 
-      {showSpawn && <SpawnDialog onClose={() => setShowSpawn(false)} />}
+      {/* Footer: dark mode toggle */}
+      <div className="p-3 border-t border-cc-border">
+        <button
+          onClick={toggleDarkMode}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-sm text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+        >
+          {darkMode ? (
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+              <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+              <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+            </svg>
+          )}
+          <span>{darkMode ? "Light mode" : "Dark mode"}</span>
+        </button>
+      </div>
+
+      {showNew && (
+        <NewSessionDialog
+          onClose={() => setShowNew(false)}
+          onCreate={handleCreateSession}
+        />
+      )}
     </aside>
   );
 }

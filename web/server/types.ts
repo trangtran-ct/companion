@@ -54,6 +54,7 @@ export type WsEvent =
   | { type: "agent:shutdown_approved"; agent: string }
   | { type: "approval:plan"; approval: Approval }
   | { type: "approval:permission"; approval: Approval }
+  | { type: "sdk:session:exited"; sessionId: string; exitCode: number | null }
   | { type: "error"; message: string };
 
 export interface SessionInfo {

@@ -1,17 +1,33 @@
 import { useStore } from "./store.js";
+import type { BrowserIncomingMessage, BrowserOutgoingMessage, ContentBlock, ChatMessage } from "./types.js";
 
-let socket: WebSocket | null = null;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let reconnectDelay = 1000;
+const sockets = new Map<string, WebSocket>();
+const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-function getWsUrl() {
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${location.host}/ws`;
+let idCounter = 0;
+function nextId(): string {
+  return `msg-${Date.now()}-${++idCounter}`;
 }
 
-function handleMessage(event: MessageEvent) {
+function getWsUrl(sessionId: string): string {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${location.host}/ws/browser/${sessionId}`;
+}
+
+function extractTextFromBlocks(blocks: ContentBlock[]): string {
+  return blocks
+    .map((b) => {
+      if (b.type === "text") return b.text;
+      if (b.type === "thinking") return b.thinking;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function handleMessage(sessionId: string, event: MessageEvent) {
   const store = useStore.getState();
-  let data: any;
+  let data: BrowserIncomingMessage;
   try {
     data = JSON.parse(event.data);
   } catch {
@@ -19,79 +35,202 @@ function handleMessage(event: MessageEvent) {
   }
 
   switch (data.type) {
-    case "snapshot":
-      store.applySnapshot(data);
+    case "session_init": {
+      store.addSession(data.session);
+      store.setCliConnected(sessionId, true);
+      store.setSessionStatus(sessionId, "idle");
       break;
-    case "session:initialized":
-      store.setSession({ initialized: true, teamName: data.teamName });
+    }
+
+    case "session_update": {
+      store.updateSession(sessionId, data.session);
       break;
-    case "session:shutdown":
-      store.reset();
+    }
+
+    case "assistant": {
+      const msg = data.message;
+      const textContent = extractTextFromBlocks(msg.content);
+      const chatMsg: ChatMessage = {
+        id: msg.id,
+        role: "assistant",
+        content: textContent,
+        contentBlocks: msg.content,
+        timestamp: Date.now(),
+        parentToolUseId: data.parent_tool_use_id,
+        model: msg.model,
+        stopReason: msg.stop_reason,
+      };
+      store.appendMessage(sessionId, chatMsg);
+      store.setStreaming(sessionId, null);
+      store.setSessionStatus(sessionId, "running");
       break;
-    case "agent:spawned":
-      store.addAgent(data.agent);
-      break;
-    case "agent:exited":
-      store.updateAgent(data.agent, { status: "exited", exitCode: data.exitCode });
-      break;
-    case "agent:idle":
-      store.updateAgent(data.agent, { status: "idle" });
-      break;
-    case "agent:message":
-      store.appendMessage(data.agent, data.message);
-      // If agent sends a non-system message, mark as running
-      if (!data.message.isSystem) {
-        store.updateAgent(data.agent, { status: "running" });
+    }
+
+    case "stream_event": {
+      const evt = data.event as Record<string, unknown>;
+      if (evt && typeof evt === "object") {
+        // Handle content_block_delta events for streaming
+        if (evt.type === "content_block_delta") {
+          const delta = evt.delta as Record<string, unknown> | undefined;
+          if (delta?.type === "text_delta" && typeof delta.text === "string") {
+            const current = store.streaming.get(sessionId) || "";
+            store.setStreaming(sessionId, current + delta.text);
+          }
+        }
       }
       break;
-    case "agent:shutdown_approved":
+    }
+
+    case "result": {
+      const r = data.data;
+      store.updateSession(sessionId, {
+        total_cost_usd: r.total_cost_usd,
+        num_turns: r.num_turns,
+      });
+      store.setStreaming(sessionId, null);
+      store.setSessionStatus(sessionId, "idle");
+      if (r.is_error && r.errors?.length) {
+        store.appendMessage(sessionId, {
+          id: nextId(),
+          role: "system",
+          content: `Error: ${r.errors.join(", ")}`,
+          timestamp: Date.now(),
+        });
+      }
       break;
-    case "approval:plan":
-    case "approval:permission":
-      store.addApproval(data.approval);
+    }
+
+    case "permission_request": {
+      store.addPermission(data.request);
       break;
-    case "error":
-      console.error("[ws] Server error:", data.message);
+    }
+
+    case "permission_cancelled": {
+      store.removePermission(data.request_id);
       break;
+    }
+
+    case "tool_progress": {
+      // Could be used for progress indicators; ignored for now
+      break;
+    }
+
+    case "tool_use_summary": {
+      // Optional: add as system message
+      break;
+    }
+
+    case "status_change": {
+      if (data.status === "compacting") {
+        store.setSessionStatus(sessionId, "compacting");
+      } else {
+        store.setSessionStatus(sessionId, data.status);
+      }
+      break;
+    }
+
+    case "auth_status": {
+      if (data.error) {
+        store.appendMessage(sessionId, {
+          id: nextId(),
+          role: "system",
+          content: `Auth error: ${data.error}`,
+          timestamp: Date.now(),
+        });
+      }
+      break;
+    }
+
+    case "error": {
+      store.appendMessage(sessionId, {
+        id: nextId(),
+        role: "system",
+        content: data.message,
+        timestamp: Date.now(),
+      });
+      break;
+    }
+
+    case "cli_disconnected": {
+      store.setCliConnected(sessionId, false);
+      store.setSessionStatus(sessionId, null);
+      break;
+    }
+
+    case "cli_connected": {
+      store.setCliConnected(sessionId, true);
+      break;
+    }
   }
 }
 
-export function connect() {
-  if (socket?.readyState === WebSocket.OPEN) return;
+export function connectSession(sessionId: string) {
+  if (sockets.has(sessionId)) return;
 
-  socket = new WebSocket(getWsUrl());
+  const store = useStore.getState();
+  store.setConnectionStatus(sessionId, "connecting");
 
-  socket.onopen = () => {
-    useStore.getState().setConnected(true);
-    reconnectDelay = 1000;
+  const ws = new WebSocket(getWsUrl(sessionId));
+  sockets.set(sessionId, ws);
+
+  ws.onopen = () => {
+    useStore.getState().setConnectionStatus(sessionId, "connected");
+    // Clear any reconnect timer
+    const timer = reconnectTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      reconnectTimers.delete(sessionId);
+    }
   };
 
-  socket.onmessage = handleMessage;
+  ws.onmessage = (event) => handleMessage(sessionId, event);
 
-  socket.onclose = () => {
-    useStore.getState().setConnected(false);
-    scheduleReconnect();
+  ws.onclose = () => {
+    sockets.delete(sessionId);
+    useStore.getState().setConnectionStatus(sessionId, "disconnected");
+    scheduleReconnect(sessionId);
   };
 
-  socket.onerror = () => {
-    socket?.close();
+  ws.onerror = () => {
+    ws.close();
   };
 }
 
-function scheduleReconnect() {
-  if (reconnectTimer) return;
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    reconnectDelay = Math.min(reconnectDelay * 1.5, 5000);
-    connect();
-  }, reconnectDelay);
+function scheduleReconnect(sessionId: string) {
+  if (reconnectTimers.has(sessionId)) return;
+  // Only reconnect if the session is still the current one
+  const timer = setTimeout(() => {
+    reconnectTimers.delete(sessionId);
+    const store = useStore.getState();
+    if (store.currentSessionId === sessionId || store.sessions.has(sessionId)) {
+      connectSession(sessionId);
+    }
+  }, 2000);
+  reconnectTimers.set(sessionId, timer);
 }
 
-export function disconnect() {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+export function disconnectSession(sessionId: string) {
+  const timer = reconnectTimers.get(sessionId);
+  if (timer) {
+    clearTimeout(timer);
+    reconnectTimers.delete(sessionId);
   }
-  socket?.close();
-  socket = null;
+  const ws = sockets.get(sessionId);
+  if (ws) {
+    ws.close();
+    sockets.delete(sessionId);
+  }
+}
+
+export function disconnectAll() {
+  for (const [id] of sockets) {
+    disconnectSession(id);
+  }
+}
+
+export function sendToSession(sessionId: string, msg: BrowserOutgoingMessage) {
+  const ws = sockets.get(sessionId);
+  if (ws?.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg));
+  }
 }

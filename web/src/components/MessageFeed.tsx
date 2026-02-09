@@ -1,9 +1,13 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "../store.js";
 import { MessageBubble } from "./MessageBubble.js";
+import type { ChatMessage } from "../types.js";
 
-export function MessageFeed({ agentName }: { agentName: string }) {
-  const messages = useStore((s) => s.messages.get(agentName) || []);
+const EMPTY_MESSAGES: ChatMessage[] = [];
+
+export function MessageFeed({ sessionId }: { sessionId: string }) {
+  const messages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
+  const streamingText = useStore((s) => s.streaming.get(sessionId));
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isNearBottom = useRef(true);
@@ -11,30 +15,30 @@ export function MessageFeed({ agentName }: { agentName: string }) {
   function handleScroll() {
     const el = containerRef.current;
     if (!el) return;
-    const threshold = 100;
     isNearBottom.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+      el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   }
 
   useEffect(() => {
     if (isNearBottom.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages.length]);
+  }, [messages.length, streamingText]);
 
-  if (messages.length === 0) {
+  if (messages.length === 0 && !streamingText) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-500 select-none">
-        <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12 text-gray-700">
-          <rect x="4" y="6" width="40" height="30" rx="4" stroke="currentColor" strokeWidth="2" />
-          <path d="M4 32L16 22L24 28L32 20L44 30" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0" />
-          <text x="14" y="26" fill="currentColor" fontSize="10" fontFamily="monospace" opacity="0.5">&gt;_</text>
-          <circle cx="36" cy="42" r="5" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-          <path d="M39.5 45.5L43 49" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity="0.3" />
-        </svg>
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 select-none px-6">
+        <div className="w-14 h-14 rounded-2xl bg-cc-card border border-cc-border flex items-center justify-center">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-7 h-7 text-cc-muted">
+            <polyline points="4 17 10 11 4 5" />
+            <line x1="12" y1="19" x2="20" y2="19" />
+          </svg>
+        </div>
         <div className="text-center">
-          <p className="text-sm text-gray-500 font-medium">No messages yet</p>
-          <p className="text-xs text-gray-600 mt-1">Send a message to start the conversation</p>
+          <p className="text-sm text-cc-fg font-medium mb-1">Start a conversation</p>
+          <p className="text-xs text-cc-muted leading-relaxed">
+            Send a message to begin working with Claude Code.
+          </p>
         </div>
       </div>
     );
@@ -42,17 +46,37 @@ export function MessageFeed({ agentName }: { agentName: string }) {
 
   return (
     <div className="flex-1 relative overflow-hidden">
-      {/* Top fade gradient */}
-      <div className="absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-gray-950 to-transparent z-10 pointer-events-none" />
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="h-full overflow-y-auto scroll-smooth px-4 py-4 space-y-3"
+        className="h-full overflow-y-auto scroll-smooth px-4 py-6"
       >
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
-        <div ref={bottomRef} />
+        <div className="max-w-3xl mx-auto space-y-5">
+          {messages.map((msg) => (
+            <MessageBubble key={msg.id} message={msg} />
+          ))}
+
+          {/* Streaming indicator */}
+          {streamingText && (
+            <div className="animate-[fadeSlideIn_0.2s_ease-out]">
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-cc-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                  <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5 text-cc-primary">
+                    <path d="M8 1v14M1 8h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <pre className="font-serif-assistant text-[15px] text-cc-fg whitespace-pre-wrap break-words leading-relaxed">
+                    {streamingText}
+                    <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
+                  </pre>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={bottomRef} />
+        </div>
       </div>
     </div>
   );

@@ -1,9 +1,10 @@
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import type { ControllerBridge } from "./controller-bridge.js";
+import type { CliLauncher } from "./cli-launcher.js";
 import type { Message } from "./types.js";
 
-export function createRoutes(bridge: ControllerBridge) {
+export function createRoutes(bridge: ControllerBridge, launcher?: CliLauncher) {
   const api = new Hono();
 
   // ─── Session ──────────────────────────────────────────────────────
@@ -101,6 +102,43 @@ export function createRoutes(bridge: ControllerBridge) {
       await ctrl.sendPermissionResponse(name, body.requestId, body.approve ?? true);
     }
     bridge.removeApproval(body.requestId);
+    return c.json({ ok: true });
+  });
+
+  // ─── SDK Sessions (--sdk-url) ─────────────────────────────────────
+
+  api.post("/sessions/create", async (c) => {
+    if (!launcher) return c.json({ error: "CLI launcher not available" }, 503);
+    const body = await c.req.json().catch(() => ({}));
+    const session = launcher.launch({
+      model: body.model,
+      permissionMode: body.permissionMode,
+      cwd: body.cwd,
+      claudeBinary: body.claudeBinary,
+      allowedTools: body.allowedTools,
+      env: body.env,
+    });
+    return c.json(session);
+  });
+
+  api.get("/sessions", (c) => {
+    if (!launcher) return c.json({ error: "CLI launcher not available" }, 503);
+    return c.json(launcher.listSessions());
+  });
+
+  api.get("/sessions/:id", (c) => {
+    if (!launcher) return c.json({ error: "CLI launcher not available" }, 503);
+    const id = c.req.param("id");
+    const session = launcher.getSession(id);
+    if (!session) return c.json({ error: "Session not found" }, 404);
+    return c.json(session);
+  });
+
+  api.post("/sessions/:id/kill", async (c) => {
+    if (!launcher) return c.json({ error: "CLI launcher not available" }, 503);
+    const id = c.req.param("id");
+    const killed = await launcher.kill(id);
+    if (!killed) return c.json({ error: "Session not found or already exited" }, 404);
     return c.json({ ok: true });
   });
 
