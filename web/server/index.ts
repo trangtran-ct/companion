@@ -1,5 +1,7 @@
 process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
 
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
@@ -8,6 +10,9 @@ import { CliLauncher } from "./cli-launcher.js";
 import { WsBridge } from "./ws-bridge.js";
 import type { SocketData } from "./ws-bridge.js";
 import type { ServerWebSocket } from "bun";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const packageRoot = process.env.__VIBE_PACKAGE_ROOT || resolve(__dirname, "..");
 
 const port = Number(process.env.PORT) || 3456;
 const wsBridge = new WsBridge();
@@ -18,10 +23,11 @@ const app = new Hono();
 app.use("/api/*", cors());
 app.route("/api", createRoutes(launcher, wsBridge));
 
-// In production, serve built frontend
+// In production, serve built frontend using absolute path (works when installed as npm package)
 if (process.env.NODE_ENV === "production") {
-  app.use("/*", serveStatic({ root: "./dist" }));
-  app.get("/*", serveStatic({ path: "./dist/index.html" }));
+  const distDir = resolve(packageRoot, "dist");
+  app.use("/*", serveStatic({ root: distDir }));
+  app.get("/*", serveStatic({ path: resolve(distDir, "index.html") }));
 }
 
 const server = Bun.serve<SocketData>({
