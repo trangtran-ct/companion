@@ -36,10 +36,13 @@ export function Sidebar() {
           const store = useStore.getState();
           for (const s of list) {
             if (s.name && (!store.sessionNames.has(s.sessionId) || /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(store.sessionNames.get(s.sessionId)!))) {
-              const hadRandomName = store.sessionNames.has(s.sessionId) && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(store.sessionNames.get(s.sessionId)!);
-              store.setSessionName(s.sessionId, s.name);
-              if (hadRandomName) {
-                store.markRecentlyRenamed(s.sessionId);
+              const currentStoreName = store.sessionNames.get(s.sessionId);
+              const hadRandomName = !!currentStoreName && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(currentStoreName);
+              if (currentStoreName !== s.name) {
+                store.setSessionName(s.sessionId, s.name);
+                if (hadRandomName) {
+                  store.markRecentlyRenamed(s.sessionId);
+                }
               }
             }
           }
