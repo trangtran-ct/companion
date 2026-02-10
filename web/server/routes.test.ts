@@ -148,6 +148,7 @@ describe("POST /api/sessions/create", () => {
     expect(gitUtils.ensureWorktree).toHaveBeenCalledWith("/repo", "feat-branch", {
       baseBranch: "main",
       createBranch: undefined,
+      forceNew: true,
     });
     expect(launcher.launch).toHaveBeenCalledWith(
       expect.objectContaining({

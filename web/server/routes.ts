@@ -40,6 +40,7 @@ export function createRoutes(launcher: CliLauncher, wsBridge: WsBridge, sessionS
           const result = gitUtils.ensureWorktree(repoInfo.repoRoot, body.branch, {
             baseBranch: repoInfo.defaultBranch,
             createBranch: body.createBranch,
+            forceNew: true,
           });
           cwd = result.worktreePath;
           worktreeInfo = {

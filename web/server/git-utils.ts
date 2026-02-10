@@ -204,20 +204,41 @@ export function listWorktrees(repoRoot: string): GitWorktreeInfo[] {
 export function ensureWorktree(
   repoRoot: string,
   branchName: string,
-  options?: { baseBranch?: string; createBranch?: boolean },
+  options?: { baseBranch?: string; createBranch?: boolean; forceNew?: boolean },
 ): WorktreeCreateResult {
   const repoName = basename(repoRoot);
-  const targetPath = worktreeDir(repoName, branchName);
 
   // Check if a worktree already exists for this branch
   const existing = listWorktrees(repoRoot);
   const found = existing.find((wt) => wt.branch === branchName);
-  if (found) {
-    return { worktreePath: found.path, branch: branchName, isNew: false };
+
+  if (found && !options?.forceNew) {
+    // Don't reuse the main worktree — it's the original repo checkout
+    if (!found.isMainWorktree) {
+      return { worktreePath: found.path, branch: branchName, isNew: false };
+    }
+  }
+
+  // Find a unique path: append -2, -3, etc. if the base path is taken
+  const basePath = worktreeDir(repoName, branchName);
+  let targetPath = basePath;
+  let suffix = 1;
+  while (existsSync(targetPath)) {
+    suffix++;
+    targetPath = `${basePath}-${suffix}`;
   }
 
   // Ensure parent directory exists
   mkdirSync(join(WORKTREES_BASE, repoName), { recursive: true });
+
+  // A worktree already exists for this branch (found above) — we need a
+  // detached worktree pointing at the same commit so multiple sessions can
+  // work on the same branch independently.
+  if (found) {
+    const commitHash = git("rev-parse HEAD", found.path);
+    git(`worktree add --detach "${targetPath}" ${commitHash}`, repoRoot);
+    return { worktreePath: targetPath, branch: branchName, isNew: false };
+  }
 
   // Check if branch already exists locally or on remote
   const branchExists =

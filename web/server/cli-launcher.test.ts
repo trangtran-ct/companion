@@ -17,30 +17,34 @@ const mockMkdirSync = vi.hoisted(() => vi.fn());
 const mockExistsSync = vi.hoisted(() => vi.fn((..._args: any[]) => false));
 const mockReadFileSync = vi.hoisted(() => vi.fn((..._args: any[]) => ""));
 const mockWriteFileSync = vi.hoisted(() => vi.fn());
+const isMockedPath = vi.hoisted(() => (path: string): boolean => {
+  return path.includes(".claude") || path.startsWith("/tmp/worktrees/") || path.startsWith("/tmp/main-repo");
+});
+
 vi.mock("node:fs", async (importOriginal) => {
   const actual = (await importOriginal()) as any;
   return {
     ...actual,
     mkdirSync: (...args: any[]) => {
-      if (typeof args[0] === "string" && args[0].includes(".claude")) {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
         return mockMkdirSync(...args);
       }
       return actual.mkdirSync(...args);
     },
     existsSync: (...args: any[]) => {
-      if (typeof args[0] === "string" && args[0].includes(".claude")) {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
         return mockExistsSync(...args);
       }
       return actual.existsSync(...args);
     },
     readFileSync: (...args: any[]) => {
-      if (typeof args[0] === "string" && args[0].includes(".claude")) {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
         return mockReadFileSync(...args);
       }
       return actual.readFileSync(...args);
     },
     writeFileSync: (...args: any[]) => {
-      if (typeof args[0] === "string" && args[0].includes(".claude")) {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
         return mockWriteFileSync(...args);
       }
       return actual.writeFileSync(...args);
@@ -207,6 +211,13 @@ describe("launch", () => {
   });
 
   it("injects worktree guardrails when isWorktree=true", () => {
+    // existsSync returns true for the worktree path (it exists on disk)
+    mockExistsSync.mockImplementation((path: string) => {
+      if (path === "/tmp/worktrees/feature-x") return true;
+      if (typeof path === "string" && path.includes(".claude")) return false;
+      return false;
+    });
+
     launcher.launch({
       cwd: "/tmp/worktrees/feature-x",
       worktreeInfo: {
@@ -234,6 +245,43 @@ describe("launch", () => {
     expect(content).toContain("feature-x");
     expect(content).toContain("/tmp/main-repo");
     expect(content).toContain("DO NOT run `git checkout`");
+  });
+
+  it("does NOT inject guardrails when worktree path equals main repo root", () => {
+    mockExistsSync.mockReturnValue(true);
+
+    launcher.launch({
+      cwd: "/tmp/main-repo",
+      worktreeInfo: {
+        isWorktree: true,
+        repoRoot: "/tmp/main-repo",
+        branch: "main",
+        worktreePath: "/tmp/main-repo",
+      },
+    });
+
+    // Should NOT write CLAUDE.md — worktree path is the main repo
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+    expect(mockMkdirSync).not.toHaveBeenCalled();
+  });
+
+  it("does NOT inject guardrails when worktree path does not exist on disk", () => {
+    // Worktree path doesn't exist (git worktree add failed or not yet run)
+    mockExistsSync.mockReturnValue(false);
+
+    launcher.launch({
+      cwd: "/tmp/worktrees/nonexistent",
+      worktreeInfo: {
+        isWorktree: true,
+        repoRoot: "/tmp/main-repo",
+        branch: "feature-y",
+        worktreePath: "/tmp/worktrees/nonexistent",
+      },
+    });
+
+    // Should NOT write CLAUDE.md — path doesn't exist
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+    expect(mockMkdirSync).not.toHaveBeenCalled();
   });
 
   it("sets session pid from spawned process", () => {
