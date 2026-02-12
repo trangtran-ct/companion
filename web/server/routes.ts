@@ -487,9 +487,12 @@ export function createRoutes(
     const cwd = c.req.query("cwd");
     if (!cwd) return c.json({ error: "cwd required" }, 400);
 
+    // Resolve to absolute path to prevent path traversal
+    const resolvedCwd = resolve(cwd);
+
     const candidates = [
-      join(cwd, "CLAUDE.md"),
-      join(cwd, ".claude", "CLAUDE.md"),
+      join(resolvedCwd, "CLAUDE.md"),
+      join(resolvedCwd, ".claude", "CLAUDE.md"),
     ];
 
     const files: { path: string; content: string }[] = [];
@@ -502,7 +505,7 @@ export function createRoutes(
       }
     }
 
-    return c.json({ cwd, files });
+    return c.json({ cwd: resolvedCwd, files });
   });
 
   /** Create or update a CLAUDE.md file */
@@ -518,6 +521,10 @@ export function createRoutes(
       return c.json({ error: "Can only write CLAUDE.md files" }, 400);
     }
     const absPath = resolve(filePath);
+    // Verify the resolved path ends with CLAUDE.md or .claude/CLAUDE.md
+    if (!absPath.endsWith("/CLAUDE.md") && !absPath.endsWith("/.claude/CLAUDE.md")) {
+      return c.json({ error: "Invalid CLAUDE.md path" }, 400);
+    }
     try {
       // Ensure parent directory exists
       const { mkdir } = await import("node:fs/promises");

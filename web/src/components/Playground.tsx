@@ -6,6 +6,7 @@ import { DiffViewer } from "./DiffViewer.js";
 import { UpdateBanner } from "./UpdateBanner.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
 import { useStore } from "../store.js";
+import { api } from "../api.js";
 import type { PermissionRequest, ChatMessage, ContentBlock } from "../types.js";
 import type { TaskItem } from "../types.js";
 import type { UpdateInfo, GitHubPRInfo } from "../api.js";
@@ -1046,6 +1047,11 @@ function PlaygroundUpdateBanner({ updateInfo }: { updateInfo: UpdateInfo }) {
 
 function PlaygroundClaudeMdButton() {
   const [open, setOpen] = useState(false);
+  const [cwd, setCwd] = useState("/tmp");
+
+  useEffect(() => {
+    api.getHome().then((res) => setCwd(res.cwd)).catch(() => {});
+  }, []);
 
   return (
     <div className="flex items-center gap-3">
@@ -1059,10 +1065,10 @@ function PlaygroundClaudeMdButton() {
         <span className="text-xs font-medium text-cc-fg">Edit CLAUDE.md</span>
       </button>
       <span className="text-[11px] text-cc-muted">
-        Click to open the editor modal (uses current working directory)
+        Click to open the editor modal (uses server working directory)
       </span>
       <ClaudeMdEditor
-        cwd={typeof window !== "undefined" ? window.location.pathname.split("/").slice(0, -1).join("/") || "/" : "/"}
+        cwd={cwd}
         open={open}
         onClose={() => setOpen(false)}
       />
