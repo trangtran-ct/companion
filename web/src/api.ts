@@ -254,7 +254,7 @@ export const api = {
 
   // Settings
   getSettings: () => get<AppSettings>("/settings"),
-  updateSettings: (data: { openrouterApiKey: string; openrouterModel?: string }) =>
+  updateSettings: (data: { openrouterApiKey?: string; openrouterModel?: string }) =>
     put<AppSettings>("/settings", data),
 
   // Git operations

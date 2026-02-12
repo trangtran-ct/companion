@@ -75,10 +75,6 @@ describe("SettingsPage", () => {
   it("falls back model to openrouter/free when blank", async () => {
     render(<SettingsPage />);
     await screen.findByText("OpenRouter key configured");
-
-    fireEvent.change(screen.getByLabelText("OpenRouter API Key"), {
-      target: { value: "or-key" },
-    });
     fireEvent.change(screen.getByLabelText("OpenRouter Model"), {
       target: { value: "   " },
     });
@@ -87,8 +83,23 @@ describe("SettingsPage", () => {
 
     await waitFor(() => {
       expect(mockApi.updateSettings).toHaveBeenCalledWith({
-        openrouterApiKey: "or-key",
         openrouterModel: "openrouter/free",
+      });
+    });
+  });
+
+  it("does not send key when left empty", async () => {
+    render(<SettingsPage />);
+    await screen.findByText("OpenRouter key configured");
+
+    fireEvent.change(screen.getByLabelText("OpenRouter Model"), {
+      target: { value: "openai/gpt-4o-mini" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mockApi.updateSettings).toHaveBeenCalledWith({
+        openrouterModel: "openai/gpt-4o-mini",
       });
     });
   });

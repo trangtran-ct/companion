@@ -771,6 +771,26 @@ describe("PUT /api/settings", () => {
     });
   });
 
+  it("updates only model without overriding key", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      openrouterApiKey: "existing-key",
+      openrouterModel: "openai/gpt-4o-mini",
+      updatedAt: 999,
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ openrouterModel: "openai/gpt-4o-mini" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith({
+      openrouterApiKey: undefined,
+      openrouterModel: "openai/gpt-4o-mini",
+    });
+  });
+
   it("returns 400 for non-string model", async () => {
     const res = await app.request("/api/settings", {
       method: "PUT",
@@ -783,7 +803,19 @@ describe("PUT /api/settings", () => {
     expect(json).toEqual({ error: "openrouterModel must be a string" });
   });
 
-  it("returns 400 if key is missing", async () => {
+  it("returns 400 for non-string key", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ openrouterApiKey: 123 }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json).toEqual({ error: "openrouterApiKey must be a string" });
+  });
+
+  it("returns 400 when no settings fields are provided", async () => {
     const res = await app.request("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -792,7 +824,7 @@ describe("PUT /api/settings", () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json).toEqual({ error: "openrouterApiKey is required" });
+    expect(json).toEqual({ error: "At least one settings field is required" });
   });
 });
 

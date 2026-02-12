@@ -27,11 +27,17 @@ export function SettingsPage() {
     setError("");
     setSaved(false);
     try {
-      const res = await api.updateSettings({
-        openrouterApiKey: openrouterApiKey.trim(),
+      const nextKey = openrouterApiKey.trim();
+      const payload: { openrouterApiKey?: string; openrouterModel: string } = {
         openrouterModel: openrouterModel.trim() || "openrouter/free",
-      });
+      };
+      if (nextKey) {
+        payload.openrouterApiKey = nextKey;
+      }
+
+      const res = await api.updateSettings(payload);
       setConfigured(res.openrouterApiKeyConfigured);
+      setOpenrouterApiKey("");
       setSaved(true);
       setTimeout(() => setSaved(false), 1800);
     } catch (err: unknown) {

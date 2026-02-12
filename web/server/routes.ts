@@ -588,15 +588,21 @@ export function createRoutes(
 
   api.put("/settings", async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    if (typeof body.openrouterApiKey !== "string") {
-      return c.json({ error: "openrouterApiKey is required" }, 400);
+    if (body.openrouterApiKey !== undefined && typeof body.openrouterApiKey !== "string") {
+      return c.json({ error: "openrouterApiKey must be a string" }, 400);
     }
     if (body.openrouterModel !== undefined && typeof body.openrouterModel !== "string") {
       return c.json({ error: "openrouterModel must be a string" }, 400);
     }
+    if (body.openrouterApiKey === undefined && body.openrouterModel === undefined) {
+      return c.json({ error: "At least one settings field is required" }, 400);
+    }
 
     const settings = updateSettings({
-      openrouterApiKey: body.openrouterApiKey.trim(),
+      openrouterApiKey:
+        typeof body.openrouterApiKey === "string"
+          ? body.openrouterApiKey.trim()
+          : undefined,
       openrouterModel:
         typeof body.openrouterModel === "string"
           ? (body.openrouterModel.trim() || DEFAULT_OPENROUTER_MODEL)
