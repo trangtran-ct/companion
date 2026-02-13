@@ -369,7 +369,9 @@ describe("launch", () => {
   });
 
   it("enables Codex web search when codexInternetAccess=true", () => {
-    mockResolveBinary.mockReturnValue("/usr/bin/codex");
+    // Use a fake path where no sibling `node` exists, so the spawn uses
+    // the codex binary directly (the explicit-node path is tested separately).
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
     launcher.launch({
@@ -380,7 +382,7 @@ describe("launch", () => {
     });
 
     const [cmdAndArgs, options] = mockSpawn.mock.calls[0];
-    expect(cmdAndArgs[0]).toBe("/usr/bin/codex");
+    expect(cmdAndArgs[0]).toBe("/opt/fake/codex");
     expect(cmdAndArgs).toContain("app-server");
     expect(cmdAndArgs).toContain("-c");
     expect(cmdAndArgs).toContain("tools.webSearch=true");
@@ -388,7 +390,7 @@ describe("launch", () => {
   });
 
   it("disables Codex web search when codexInternetAccess=false", () => {
-    mockResolveBinary.mockReturnValue("/usr/bin/codex");
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
     launcher.launch({
@@ -402,6 +404,27 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("app-server");
     expect(cmdAndArgs).toContain("-c");
     expect(cmdAndArgs).toContain("tools.webSearch=false");
+  });
+
+  it("spawns codex via sibling node binary to bypass shebang issues", () => {
+    // When a `node` binary exists next to the resolved `codex`, the launcher
+    // should invoke `node <codex-script>` directly instead of relying on
+    // the #!/usr/bin/env node shebang (which may resolve to system Node v12).
+    mockResolveBinary.mockReturnValue("/usr/bin/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+    });
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    // /usr/bin/node exists on this system, so it should use explicit node
+    expect(cmdAndArgs[0]).toBe("/usr/bin/node");
+    // The codex script path (possibly resolved via realpath) should be arg 1
+    expect(cmdAndArgs[1]).toContain("codex");
+    expect(cmdAndArgs).toContain("app-server");
   });
 
   it("sets state=exited and exitCode=127 when codex binary not found", () => {
