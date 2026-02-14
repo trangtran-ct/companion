@@ -11,10 +11,18 @@ const EMPTY_STATE: PluginStateFile = {
   config: {},
 };
 
+function freshEmptyState(): PluginStateFile {
+  return {
+    updatedAt: EMPTY_STATE.updatedAt,
+    enabled: {},
+    config: {},
+  };
+}
+
 export class PluginStateStore {
   private filePath: string;
   private loaded = false;
-  private state: PluginStateFile = { ...EMPTY_STATE };
+  private state: PluginStateFile = freshEmptyState();
 
   constructor(filePath?: string) {
     this.filePath = filePath || DEFAULT_PATH;
@@ -23,7 +31,7 @@ export class PluginStateStore {
   private ensureLoaded(): void {
     if (this.loaded) return;
     if (!existsSync(this.filePath)) {
-      this.state = { ...EMPTY_STATE };
+      this.state = freshEmptyState();
       this.loaded = true;
       return;
     }
@@ -36,7 +44,7 @@ export class PluginStateStore {
         config: raw.config && typeof raw.config === "object" ? raw.config as Record<string, unknown> : {},
       };
     } catch {
-      this.state = { ...EMPTY_STATE };
+      this.state = freshEmptyState();
     }
 
     this.loaded = true;
@@ -63,6 +71,6 @@ export class PluginStateStore {
   _resetForTest(filePath?: string): void {
     this.filePath = filePath || DEFAULT_PATH;
     this.loaded = false;
-    this.state = { ...EMPTY_STATE };
+    this.state = freshEmptyState();
   }
 }
