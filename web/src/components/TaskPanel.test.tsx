@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 vi.mock("../api.js", () => ({
@@ -92,5 +92,17 @@ describe("TaskPanel", () => {
     expect(screen.getByText("From notifications")).toBeInTheDocument();
     expect(screen.queryByText("From permission")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
+  });
+
+  it("clears plugin focus when closing the panel", () => {
+    resetStore({
+      taskbarPluginFocus: "notifications",
+    });
+
+    render(<TaskPanel sessionId="s1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Close session panel" }));
+
+    expect(mockState.setTaskPanelOpen).toHaveBeenCalledWith(false);
+    expect(mockState.setTaskbarPluginFocus).toHaveBeenCalledWith(null);
   });
 });

@@ -387,7 +387,11 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
           Session
         </span>
         <button
-          onClick={() => setTaskPanelOpen(false)}
+          onClick={() => {
+            setTaskPanelOpen(false);
+            setTaskbarPluginFocus(null);
+          }}
+          aria-label="Close session panel"
           className="flex items-center justify-center w-6 h-6 rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
         >
           <svg

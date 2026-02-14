@@ -22,7 +22,6 @@ export function PluginsPage({ embedded = false }: PluginsPageProps) {
   const setTaskbarPluginPinned = useStore((s) => s.setTaskbarPluginPinned);
   const setTaskbarPluginFocus = useStore((s) => s.setTaskbarPluginFocus);
   const setTaskPanelOpen = useStore((s) => s.setTaskPanelOpen);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
   const [draftById, setDraftById] = useState<Map<string, string>>(new Map());
@@ -51,8 +50,7 @@ export function PluginsPage({ embedded = false }: PluginsPageProps) {
     refreshPlugins()
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => setLoading(false));
+      });
   // refreshPlugins updates global and local plugin states.
   }, []);
 
@@ -115,7 +113,6 @@ export function PluginsPage({ embedded = false }: PluginsPageProps) {
           )}
         </div>
 
-        {loading && <p className="text-sm text-cc-muted">Loading plugins...</p>}
         {error && <p className="text-sm text-cc-error">{error}</p>}
 
         {plugins.map((plugin) => (
