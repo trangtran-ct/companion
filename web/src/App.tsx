@@ -15,6 +15,7 @@ import { SettingsPage } from "./components/SettingsPage.js";
 import { EnvManager } from "./components/EnvManager.js";
 import { TerminalPage } from "./components/TerminalPage.js";
 import { PluginsPage } from "./components/PluginsPage.js";
+import { ToastContainer } from "./components/ToastContainer.js";
 
 function useHash() {
   return useSyncExternalStore(
@@ -165,6 +166,8 @@ export default function App() {
           </div>
         </>
       )}
+
+      <ToastContainer />
     </div>
   );
 }

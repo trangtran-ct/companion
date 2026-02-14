@@ -1,7 +1,7 @@
 import { useStore } from "./store.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, ContentBlock, ChatMessage, TaskItem, SdkSessionInfo, McpServerConfig } from "./types.js";
 import { generateUniqueSessionName } from "./utils/names.js";
-import { playNotificationSound } from "./utils/notification-sound.js";
+import { playNotificationSound, levelToSoundVariant } from "./utils/notification-sound.js";
 
 const sockets = new Map<string, WebSocket>();
 const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -460,14 +460,33 @@ function handleParsedMessage(
     }
 
     case "plugin_insight": {
-      store.addPluginInsight(sessionId, data.insight);
-      const prefix = data.insight.title ? `[Plugin] ${data.insight.title}: ` : "[Plugin] ";
+      const insight = data.insight;
+      store.addPluginInsight(sessionId, insight);
+      const prefix = insight.title ? `[Plugin] ${insight.title}: ` : "[Plugin] ";
       store.appendMessage(sessionId, {
-        id: data.insight.id,
+        id: insight.id,
         role: "system",
-        content: `${prefix}${data.insight.message}`,
-        timestamp: data.insight.timestamp || Date.now(),
+        content: `${prefix}${insight.message}`,
+        timestamp: insight.timestamp || Date.now(),
       });
+
+      // Generic capability: Toast
+      if (insight.toast) {
+        store.addToast(insight);
+      }
+
+      // Generic capability: Sound
+      if (insight.sound && store.notificationSound) {
+        const variant = typeof insight.sound === "string"
+          ? insight.sound
+          : levelToSoundVariant(insight.level);
+        playNotificationSound(variant);
+      }
+
+      // Generic capability: Desktop notification
+      if (insight.desktop && !document.hasFocus() && store.notificationDesktop) {
+        sendBrowserNotification(insight.title, insight.message, insight.id);
+      }
       break;
     }
 

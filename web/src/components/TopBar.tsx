@@ -2,8 +2,9 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
+import { NotificationPopover } from "./NotificationPopover.js";
 
-const EMPTY_INSIGHTS: Array<{ id: string; plugin_id: string }> = [];
+const EMPTY_INSIGHTS: Array<{ id: string; plugin_id: string; timestamp: number }> = [];
 
 export function TopBar() {
   const hash = useSyncExternalStore(
@@ -44,6 +45,9 @@ export function TopBar() {
   const taskbarPluginPins = useStore((s) => s.taskbarPluginPins);
   const plugins = useStore((s) => s.plugins);
   const setTaskbarPluginFocus = useStore((s) => s.setTaskbarPluginFocus);
+  const notificationPopoverOpen = useStore((s) => s.notificationPopoverOpen);
+  const setNotificationPopoverOpen = useStore((s) => s.setNotificationPopoverOpen);
+  const lastReadTs = useStore((s) => currentSessionId ? (s.lastReadInsightTimestamp.get(currentSessionId) ?? 0) : 0);
   const sessionPluginInsights = useStore((s) => {
     if (!currentSessionId) return EMPTY_INSIGHTS;
     return s.pluginInsights.get(currentSessionId) || EMPTY_INSIGHTS;
@@ -55,6 +59,9 @@ export function TopBar() {
     }
     return counts;
   }, [sessionPluginInsights]);
+  const unreadInsightCount = useMemo(() => {
+    return sessionPluginInsights.filter((i) => i.timestamp > lastReadTs).length;
+  }, [sessionPluginInsights, lastReadTs]);
   const pinnedTaskbarPlugins = plugins.filter((plugin) => plugin.enabled && taskbarPluginPins.has(plugin.id));
 
   const cwd = useStore((s) => {
@@ -173,25 +180,36 @@ export function TopBar() {
           )}
 
           {pinnedTaskbarPlugins.map((plugin) => {
-            const pluginInsightCount = pluginInsightCountByPlugin.get(plugin.id) || 0;
+            const isNotificationsPlugin = plugin.id === "notifications";
+            const badgeCount = isNotificationsPlugin ? unreadInsightCount : (pluginInsightCountByPlugin.get(plugin.id) || 0);
             const compactName = plugin.name.length > 12 ? `${plugin.name.slice(0, 12)}…` : plugin.name;
             return (
-              <button
-                key={plugin.id}
-                onClick={() => {
-                  setTaskPanelOpen(true);
-                  setTaskbarPluginFocus(plugin.id);
-                }}
-                className="relative px-2 py-1 rounded-md text-[11px] font-medium text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-                title={`Open ${plugin.name} insights in session panel`}
-              >
-                {compactName}
-                {pluginInsightCount > 0 && (
-                  <span className="absolute -top-1 -right-1 text-[9px] bg-cc-primary text-white rounded-full min-w-[14px] h-[14px] px-1 flex items-center justify-center font-semibold leading-none">
-                    {Math.min(pluginInsightCount, 99)}
-                  </span>
-                )}
-              </button>
+              <div key={plugin.id} className="relative">
+                <button
+                  onClick={() => {
+                    if (isNotificationsPlugin) {
+                      setNotificationPopoverOpen(!notificationPopoverOpen);
+                    } else {
+                      setTaskPanelOpen(true);
+                      setTaskbarPluginFocus(plugin.id);
+                    }
+                  }}
+                  className={`relative px-2 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
+                    isNotificationsPlugin && notificationPopoverOpen
+                      ? "text-cc-primary bg-cc-active"
+                      : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+                  }`}
+                  title={isNotificationsPlugin ? "Open notifications" : `Open ${plugin.name} insights in session panel`}
+                >
+                  {compactName}
+                  {badgeCount > 0 && (
+                    <span className="absolute -top-1 -right-1 text-[9px] bg-cc-primary text-white rounded-full min-w-[14px] h-[14px] px-1 flex items-center justify-center font-semibold leading-none">
+                      {Math.min(badgeCount, 99)}
+                    </span>
+                  )}
+                </button>
+                {isNotificationsPlugin && <NotificationPopover />}
+              </div>
             );
           })}
 

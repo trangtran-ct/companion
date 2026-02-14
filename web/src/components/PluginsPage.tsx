@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { api, type PluginRuntimeInfo } from "../api.js";
 import { useStore } from "../store.js";
+import { NotificationPluginConfig } from "./NotificationPluginConfig.js";
+
+// Custom config renderers for specific plugins. Falls back to JSON textarea if not listed.
+const customConfigRenderers: Record<string, React.FC<{ plugin: PluginRuntimeInfo; onRefresh: () => void }>> = {
+  notifications: NotificationPluginConfig,
+};
 
 interface PluginsPageProps {
   embedded?: boolean;
@@ -175,29 +181,37 @@ export function PluginsPage({ embedded = false }: PluginsPageProps) {
 
             <div>
               <p className="text-[11px] text-cc-muted mb-1">Events: {plugin.events.join(", ")}</p>
-              <textarea
-                value={draftById.get(plugin.id) || "{}"}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setDraftById((prev) => {
-                    const next = new Map(prev);
-                    next.set(plugin.id, value);
-                    return next;
-                  });
-                }}
-                rows={8}
-                className="w-full px-3 py-2.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg font-mono-code focus:outline-none focus:border-cc-primary/60"
-              />
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                onClick={() => saveConfig(plugin)}
-                disabled={savingId === plugin.id}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-cc-primary hover:bg-cc-primary-hover text-white transition-colors cursor-pointer disabled:bg-cc-hover disabled:text-cc-muted disabled:cursor-not-allowed"
-              >
-                Save config
-              </button>
+              {customConfigRenderers[plugin.id] ? (
+                (() => {
+                  const CustomRenderer = customConfigRenderers[plugin.id];
+                  return <CustomRenderer plugin={plugin} onRefresh={() => refreshPlugins({ preserveDrafts: true })} />;
+                })()
+              ) : (
+                <>
+                  <textarea
+                    value={draftById.get(plugin.id) || "{}"}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setDraftById((prev) => {
+                        const next = new Map(prev);
+                        next.set(plugin.id, value);
+                        return next;
+                      });
+                    }}
+                    rows={8}
+                    className="w-full px-3 py-2.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg font-mono-code focus:outline-none focus:border-cc-primary/60"
+                  />
+                  <div className="flex justify-end mt-3">
+                    <button
+                      onClick={() => saveConfig(plugin)}
+                      disabled={savingId === plugin.id}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-cc-primary hover:bg-cc-primary-hover text-white transition-colors cursor-pointer disabled:bg-cc-hover disabled:text-cc-muted disabled:cursor-not-allowed"
+                    >
+                      Save config
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </section>
         ))}

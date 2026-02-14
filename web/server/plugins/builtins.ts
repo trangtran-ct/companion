@@ -5,6 +5,7 @@ import type {
   PluginEventOf,
   PluginEventResult,
   PluginInsight,
+  SoundVariant,
 } from "./types.js";
 
 interface NotificationsPluginConfig {
@@ -83,6 +84,12 @@ function normalizePermissionAutomationConfig(input: unknown): PermissionAutomati
   return { rules };
 }
 
+interface InsightCaps {
+  toast?: boolean;
+  sound?: boolean | SoundVariant;
+  desktop?: boolean;
+}
+
 function buildInsight(
   pluginId: string,
   event: PluginEvent,
@@ -90,6 +97,7 @@ function buildInsight(
   title: string,
   message: string,
   sessionId?: string,
+  caps?: InsightCaps,
 ): PluginInsight {
   return {
     id: `${pluginId}-${event.meta.timestamp}-${Math.random().toString(36).slice(2, 8)}`,
@@ -100,6 +108,7 @@ function buildInsight(
     timestamp: event.meta.timestamp,
     session_id: sessionId,
     event_name: event.name,
+    ...caps,
   };
 }
 
@@ -140,7 +149,7 @@ export const notificationsPlugin: PluginDefinition<NotificationsPluginConfig> = 
       const payload = (event as PluginEventOf<"session.created">).data;
       return {
         insights: [
-          buildInsight("notifications", event, "info", "Session created", `Session ${payload.session.session_id} started.`, payload.session.session_id),
+          buildInsight("notifications", event, "info", "Session created", `Session ${payload.session.session_id} started.`, payload.session.session_id, { toast: true, sound: true, desktop: true }),
         ],
       };
     }
@@ -150,7 +159,7 @@ export const notificationsPlugin: PluginDefinition<NotificationsPluginConfig> = 
       const payload = (event as PluginEventOf<"session.killed" | "session.archived" | "session.deleted">).data;
       return {
         insights: [
-          buildInsight("notifications", event, "warning", "Session ended", `Event ${event.name} on ${payload.sessionId}.`, payload.sessionId),
+          buildInsight("notifications", event, "warning", "Session ended", `Event ${event.name} on ${payload.sessionId}.`, payload.sessionId, { toast: true, sound: true, desktop: true }),
         ],
       };
     }
@@ -168,6 +177,7 @@ export const notificationsPlugin: PluginDefinition<NotificationsPluginConfig> = 
             payload.success ? "Execution completed" : "Execution error",
             payload.success ? `Result received (${payload.numTurns} turns).` : (payload.errorSummary || "Unknown error"),
             payload.sessionId,
+            { toast: true, sound: true, desktop: !payload.success },
           ),
         ],
       };
@@ -185,6 +195,7 @@ export const notificationsPlugin: PluginDefinition<NotificationsPluginConfig> = 
             "Permission requested",
             `${payload.permission.tool_name} is waiting for a decision.`,
             payload.sessionId,
+            { toast: true, sound: true, desktop: true },
           ),
         ],
       };
@@ -202,6 +213,7 @@ export const notificationsPlugin: PluginDefinition<NotificationsPluginConfig> = 
             "Permission responded",
             `${payload.requestId}: ${payload.behavior}${payload.automated ? " (automated)" : ""}`,
             payload.sessionId,
+            { toast: true },
           ),
         ],
       };
@@ -218,6 +230,7 @@ export const notificationsPlugin: PluginDefinition<NotificationsPluginConfig> = 
             event.name === "tool.started" ? "Tool started" : "Tool finished",
             `tool_use_id=${payload.toolUseId}`,
             payload.sessionId,
+            { toast: true },
           ),
         ],
       };
@@ -280,6 +293,7 @@ export const permissionAutomationPlugin: PluginDefinition<PermissionAutomationPl
             "Permission auto-handled",
             `${permissionEvent.data.permission.tool_name}: ${rule.action} via rule ${rule.id}.`,
             permissionEvent.data.sessionId,
+            { toast: true },
           ),
         ],
       };

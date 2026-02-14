@@ -130,6 +130,8 @@ export type PluginEvent = {
 
 export type PluginInsightLevel = "info" | "success" | "warning" | "error";
 
+export type SoundVariant = "default" | "success" | "error" | "warning" | "info";
+
 export interface PluginInsight {
   id: string;
   plugin_id: string;
@@ -139,6 +141,14 @@ export interface PluginInsight {
   timestamp: number;
   session_id?: string;
   event_name?: PluginEventName;
+
+  // Notification capabilities — any plugin can opt into these
+  /** Show a toast notification in the UI. */
+  toast?: boolean;
+  /** Play a sound. true = level-based variant, or specify an explicit variant. */
+  sound?: boolean | SoundVariant;
+  /** Show a native desktop notification (only when tab is unfocused). */
+  desktop?: boolean;
 }
 
 export interface PermissionAutomationDecision {

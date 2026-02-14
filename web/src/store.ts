@@ -1,6 +1,20 @@
 import { create } from "zustand";
 import type { SessionState, PermissionRequest, ChatMessage, SdkSessionInfo, TaskItem, McpServerDetail, PluginInsight } from "./types.js";
 import type { UpdateInfo, PRStatusResponse, PluginRuntimeInfo } from "./api.js";
+import type { PluginInsightLevel } from "../server/plugins/types.js";
+
+export interface ToastItem {
+  id: string;
+  title: string;
+  message: string;
+  level: PluginInsightLevel;
+  timestamp: number;
+  pluginId: string;
+  sessionId?: string;
+  dismissed: boolean;
+  count: number;
+  key: string;
+}
 
 interface AppState {
   // Sessions
@@ -55,6 +69,13 @@ interface AppState {
   plugins: PluginRuntimeInfo[];
   taskbarPluginPins: Set<string>;
   taskbarPluginFocus: string | null;
+
+  // Toast notifications (generic plugin capability)
+  toasts: ToastItem[];
+
+  // Notification popover
+  notificationPopoverOpen: boolean;
+  lastReadInsightTimestamp: Map<string, number>;
 
   // Sidebar project grouping
   collapsedProjects: Set<string>;
@@ -128,6 +149,14 @@ interface AppState {
   setPlugins: (plugins: PluginRuntimeInfo[]) => void;
   setTaskbarPluginPinned: (pluginId: string, pinned: boolean) => void;
   setTaskbarPluginFocus: (pluginId: string | null) => void;
+
+  // Toast actions
+  addToast: (insight: PluginInsight) => void;
+  dismissToast: (id: string) => void;
+
+  // Notification popover actions
+  setNotificationPopoverOpen: (open: boolean) => void;
+  markInsightsRead: (sessionId: string) => void;
 
   // Sidebar project grouping actions
   toggleProjectCollapse: (projectKey: string) => void;
@@ -244,6 +273,9 @@ export const useStore = create<AppState>((set) => ({
   plugins: [],
   taskbarPluginPins: getInitialTaskbarPluginPins(),
   taskbarPluginFocus: null,
+  toasts: [],
+  notificationPopoverOpen: false,
+  lastReadInsightTimestamp: new Map(),
   collapsedProjects: getInitialCollapsedProjects(),
   updateInfo: null,
   updateDismissedVersion: getInitialDismissedVersion(),
@@ -582,6 +614,54 @@ export const useStore = create<AppState>((set) => ({
 
   setTaskbarPluginFocus: (pluginId) => set({ taskbarPluginFocus: pluginId }),
 
+  addToast: (insight) =>
+    set((s) => {
+      const key = `${insight.plugin_id}:${insight.title}`;
+      const now = Date.now();
+      // Dedup: merge with existing toast if same key within 2 seconds
+      const recent = s.toasts.find(
+        (t) => !t.dismissed && t.key === key && now - t.timestamp < 2000,
+      );
+      if (recent) {
+        return {
+          toasts: s.toasts.map((t) =>
+            t.id === recent.id
+              ? { ...t, count: t.count + 1, message: insight.message, timestamp: now }
+              : t,
+          ),
+        };
+      }
+      const toast: ToastItem = {
+        id: insight.id,
+        title: insight.title,
+        message: insight.message,
+        level: insight.level,
+        timestamp: now,
+        pluginId: insight.plugin_id,
+        sessionId: insight.session_id,
+        dismissed: false,
+        count: 1,
+        key,
+      };
+      // Cap at 5 visible toasts
+      const toasts = [...s.toasts.filter((t) => !t.dismissed), toast].slice(-5);
+      return { toasts };
+    }),
+
+  dismissToast: (id) =>
+    set((s) => ({
+      toasts: s.toasts.map((t) => (t.id === id ? { ...t, dismissed: true } : t)),
+    })),
+
+  setNotificationPopoverOpen: (open) => set({ notificationPopoverOpen: open }),
+
+  markInsightsRead: (sessionId) =>
+    set((s) => {
+      const lastReadInsightTimestamp = new Map(s.lastReadInsightTimestamp);
+      lastReadInsightTimestamp.set(sessionId, Date.now());
+      return { lastReadInsightTimestamp };
+    }),
+
   toggleProjectCollapse: (projectKey) =>
     set((s) => {
       const collapsedProjects = new Set(s.collapsedProjects);
@@ -670,6 +750,9 @@ export const useStore = create<AppState>((set) => ({
       plugins: [],
       taskbarPluginPins: getInitialTaskbarPluginPins(),
       taskbarPluginFocus: null,
+      toasts: [],
+      notificationPopoverOpen: false,
+      lastReadInsightTimestamp: new Map(),
       prStatus: new Map(),
       activeTab: "chat" as const,
       diffPanelSelectedFile: new Map(),
