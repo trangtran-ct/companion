@@ -1570,24 +1570,28 @@ export class CodexAdapter {
   private handleTokenUsageUpdated(params: Record<string, unknown>): void {
     // Codex sends: { threadId, turnId, tokenUsage: {
     //   total: { totalTokens, inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens },
-    //   last: { ... },
+    //   last: { totalTokens, inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens },
     //   modelContextWindow: 258400
     // }}
+    // IMPORTANT: `total` is cumulative across all turns and can far exceed the context window.
+    // `last` is the most recent turn — its inputTokens reflects what's actually in context.
     const tokenUsage = params.tokenUsage as Record<string, unknown> | undefined;
     if (!tokenUsage) return;
 
     const total = tokenUsage.total as Record<string, number> | undefined;
+    const last = tokenUsage.last as Record<string, number> | undefined;
     const contextWindow = tokenUsage.modelContextWindow as number | undefined;
 
     const updates: Partial<SessionState> = {};
 
-    if (total && contextWindow && contextWindow > 0) {
-      const used = (total.inputTokens || 0) + (total.outputTokens || 0);
-      const pct = Math.round((used / contextWindow) * 100);
+    // Use last turn's input tokens for context usage — that's what's actually in the window
+    if (last && contextWindow && contextWindow > 0) {
+      const usedInContext = (last.inputTokens || 0) + (last.outputTokens || 0);
+      const pct = Math.round((usedInContext / contextWindow) * 100);
       updates.context_used_percent = Math.max(0, Math.min(pct, 100));
     }
 
-    // Forward token breakdown for display in the UI
+    // Forward cumulative token breakdown for display in the UI
     if (total) {
       updates.codex_token_details = {
         inputTokens: total.inputTokens || 0,
