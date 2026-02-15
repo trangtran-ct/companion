@@ -68,6 +68,11 @@ launcher.onCodexAdapterCreated((sessionId, adapter) => {
   wsBridge.attachCodexAdapter(sessionId, adapter);
 });
 
+// When a CLI process exits, notify the assistant manager for auto-relaunch
+launcher.onSessionExited((sessionId) => {
+  assistantManager.handleCliExit(sessionId);
+});
+
 // Start watching PRs when git info is resolved for a session
 wsBridge.onSessionGitInfoReadyCallback((sessionId, cwd, branch) => {
   prPoller.watch(sessionId, cwd, branch);

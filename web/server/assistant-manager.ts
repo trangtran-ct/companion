@@ -202,6 +202,7 @@ export class AssistantManager {
     });
 
     this.config.sessionId = session.sessionId;
+    this.config.enabled = true;
     if (!this.config.createdAt) this.config.createdAt = Date.now();
     this.config.lastActiveAt = Date.now();
     this.saveConfig();
@@ -230,6 +231,10 @@ export class AssistantManager {
     if (!this.config.sessionId) return false;
     const killed = await this.launcher.kill(this.config.sessionId);
     console.log("[assistant] Stopped session:", this.config.sessionId);
+    this.config.enabled = false;
+    this.config.sessionId = null;
+    this.config.cliSessionId = null;
+    this.saveConfig();
     return killed;
   }
 

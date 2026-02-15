@@ -1170,6 +1170,9 @@ export function createRoutes(
 
   api.get("/skills/:slug", async (c) => {
     const slug = c.req.param("slug");
+    if (!slug || slug.includes("..") || slug.includes("/") || slug.includes("\\")) {
+      return c.json({ error: "Invalid slug" }, 400);
+    }
     const skillMdPath = join(SKILLS_DIR, slug, "SKILL.md");
     if (!existsSync(skillMdPath)) return c.json({ error: "Skill not found" }, 404);
     const content = await readFile(skillMdPath, "utf-8");
@@ -1204,6 +1207,9 @@ export function createRoutes(
 
   api.put("/skills/:slug", async (c) => {
     const slug = c.req.param("slug");
+    if (!slug || slug.includes("..") || slug.includes("/") || slug.includes("\\")) {
+      return c.json({ error: "Invalid slug" }, 400);
+    }
     const skillMdPath = join(SKILLS_DIR, slug, "SKILL.md");
     if (!existsSync(skillMdPath)) return c.json({ error: "Skill not found" }, 404);
     const body = await c.req.json().catch(() => ({}));
@@ -1216,6 +1222,9 @@ export function createRoutes(
 
   api.delete("/skills/:slug", async (c) => {
     const slug = c.req.param("slug");
+    if (!slug || slug.includes("..") || slug.includes("/") || slug.includes("\\")) {
+      return c.json({ error: "Invalid slug" }, 400);
+    }
     const skillDir = join(SKILLS_DIR, slug);
     if (!existsSync(skillDir)) return c.json({ error: "Skill not found" }, 404);
     const { rmSync } = await import("node:fs");
