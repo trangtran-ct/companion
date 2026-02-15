@@ -92,9 +92,10 @@ export class CronScheduler {
   }
 
   /** Execute a job: create a session, send the prompt, track the result. */
-  async executeJob(jobId: string): Promise<void> {
+  async executeJob(jobId: string, opts?: { force?: boolean }): Promise<void> {
     const job = cronStore.getJob(jobId);
-    if (!job || !job.enabled) return;
+    if (!job) return;
+    if (!job.enabled && !opts?.force) return;
 
     // Overlap prevention: skip if previous execution is still running
     if (job.lastSessionId && this.launcher.isAlive(job.lastSessionId)) {
@@ -183,9 +184,9 @@ export class CronScheduler {
     }
   }
 
-  /** Manual trigger (run now regardless of schedule). */
+  /** Manual trigger (run now regardless of schedule, bypasses enabled check). */
   executeJobManually(jobId: string): void {
-    this.executeJob(jobId).catch((err) => {
+    this.executeJob(jobId, { force: true }).catch((err) => {
       console.error(`[cron-scheduler] Manual execution of job "${jobId}" failed:`, err);
     });
   }

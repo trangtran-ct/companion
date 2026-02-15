@@ -1120,7 +1120,12 @@ export function createRoutes(
     const id = c.req.param("id");
     const body = await c.req.json().catch(() => ({}));
     try {
-      const job = cronStore.updateJob(id, body);
+      // Only allow user-editable fields — prevent tampering with internal tracking
+      const allowed: Record<string, unknown> = {};
+      for (const key of ["name", "prompt", "schedule", "recurring", "backendType", "model", "cwd", "envSlug", "enabled", "permissionMode", "codexInternetAccess"] as const) {
+        if (key in body) allowed[key] = body[key];
+      }
+      const job = cronStore.updateJob(id, allowed);
       if (!job) return c.json({ error: "Job not found" }, 404);
       // Stop the old timer (id may differ from job.id after a rename)
       if (job.id !== id) cronScheduler?.stopJob(id);
