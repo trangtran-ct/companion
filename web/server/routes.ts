@@ -1122,6 +1122,8 @@ export function createRoutes(
     try {
       const job = cronStore.updateJob(id, body);
       if (!job) return c.json({ error: "Job not found" }, 404);
+      // Stop the old timer (id may differ from job.id after a rename)
+      if (job.id !== id) cronScheduler?.stopJob(id);
       cronScheduler?.scheduleJob(job);
       return c.json(job);
     } catch (e: unknown) {

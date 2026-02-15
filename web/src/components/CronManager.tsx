@@ -146,8 +146,7 @@ export function CronManager({ onClose, embedded = false }: Props) {
 
     let schedule = createForm.schedule;
     if (!createForm.recurring && createForm.oneTimeDate) {
-      const d = new Date(createForm.oneTimeDate);
-      schedule = `${d.getMinutes()} ${d.getHours()} ${d.getDate()} ${d.getMonth() + 1} *`;
+      schedule = new Date(createForm.oneTimeDate).toISOString();
     }
 
     try {
@@ -200,8 +199,7 @@ export function CronManager({ onClose, embedded = false }: Props) {
 
     let schedule = editForm.schedule;
     if (!editForm.recurring && editForm.oneTimeDate) {
-      const d = new Date(editForm.oneTimeDate);
-      schedule = `${d.getMinutes()} ${d.getHours()} ${d.getDate()} ${d.getMonth() + 1} *`;
+      schedule = new Date(editForm.oneTimeDate).toISOString();
     }
 
     try {
