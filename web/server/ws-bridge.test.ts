@@ -1472,6 +1472,77 @@ describe("Browser message routing", () => {
 });
 
 describe("Codex permission handling", () => {
+  it("emits result.received plugin events for Codex adapter messages", async () => {
+    let onBrowserMessageHandler: ((msg: any) => void) | null = null;
+    const adapter = {
+      onBrowserMessage: (handler: (msg: any) => void) => {
+        onBrowserMessageHandler = handler;
+      },
+      onSessionMeta: (_handler: (meta: any) => void) => {},
+      onDisconnect: (_handler: () => void) => {},
+      onInitError: (_handler: (error: Error) => void) => {},
+      sendBrowserMessage: vi.fn(),
+      isConnected: () => true,
+    };
+    const browser = makeBrowserSocket("s-codex-result-event");
+    const emit = vi.fn(async (event: any) => {
+      if (event.name === "result.received") {
+        return {
+          insights: [{
+            id: "insight-codex-result",
+            plugin_id: "notifications",
+            title: "Execution completed",
+            message: "Result received",
+            level: "success",
+            timestamp: Date.now(),
+            session_id: "s-codex-result-event",
+            event_name: "result.received",
+            sound: true,
+          }],
+          aborted: false,
+        };
+      }
+      return { insights: [], aborted: false };
+    });
+    bridge.setPluginManager({ emit } as any);
+
+    bridge.attachCodexAdapter("s-codex-result-event", adapter as any);
+    bridge.handleBrowserOpen(browser, "s-codex-result-event");
+    browser.send.mockClear();
+    expect(onBrowserMessageHandler).toBeTruthy();
+
+    onBrowserMessageHandler!({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        duration_ms: 120,
+        duration_api_ms: 95,
+        is_error: false,
+        num_turns: 1,
+        result: "Hello",
+        session_id: "s-codex-result-event",
+        total_cost_usd: 0.0001,
+        usage: {
+          input_tokens: 1,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+          output_tokens: 1,
+          server_tool_use: { web_search_requests: 0 },
+          service_tier: "standard",
+        },
+        uuid: "codex-result-uuid",
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      name: "result.received",
+    }), expect.anything());
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls.some((m: any) => m.type === "plugin_insight" && m.insight?.id === "insight-codex-result")).toBe(true);
+  });
+
   it("plugin abort returns deny response to Codex adapter", async () => {
     let onBrowserMessageHandler: ((msg: any) => void) | null = null;
     const adapter = {

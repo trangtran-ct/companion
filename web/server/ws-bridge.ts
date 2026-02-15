@@ -728,6 +728,11 @@ export class WsBridge {
       }
 
       this.broadcastToBrowsers(session, msg);
+      if (msg.type === "assistant") {
+        this.emitAssistantPluginEvent(session, msg.message);
+      } else if (msg.type === "result") {
+        this.emitResultPluginEvent(session, msg.data);
+      }
 
       // Trigger auto-naming after the first result
       if (
@@ -1076,11 +1081,18 @@ export class WsBridge {
     session.messageHistory.push(browserMsg);
     this.broadcastToBrowsers(session, browserMsg);
     this.persistSession(session);
-    const text = msg.message.content
+    this.emitAssistantPluginEvent(session, msg.message);
+  }
+
+  private emitAssistantPluginEvent(
+    session: Session,
+    message: CLIAssistantMessage["message"],
+  ): void {
+    const text = message.content
       .filter((b) => b.type === "text")
       .map((b) => b.text)
       .join("\n");
-    const toolBlocks = msg.message.content.filter((b) => b.type === "tool_use");
+    const toolBlocks = message.content.filter((b) => b.type === "tool_use");
     void this.emitPluginEvent(this.createPluginEvent(
       "message.assistant",
       {
@@ -1094,7 +1106,7 @@ export class WsBridge {
         source: "ws-bridge",
         sessionId: session.id,
         backendType: session.backendType,
-        correlationId: msg.message.id,
+        correlationId: message.id,
       },
     )).then((pluginResult) => {
       if (pluginResult.insights.length > 0) {
@@ -1138,6 +1150,27 @@ export class WsBridge {
     session.messageHistory.push(browserMsg);
     this.broadcastToBrowsers(session, browserMsg);
     this.persistSession(session);
+    this.emitResultPluginEvent(session, msg);
+
+    // Trigger auto-naming after the first successful result for this session.
+    // Note: num_turns counts all internal tool-use turns, so it's typically > 1
+    // even on the first user interaction. We track per-session instead.
+    if (
+      !msg.is_error &&
+      this.onFirstTurnCompleted &&
+      !this.autoNamingAttempted.has(session.id)
+    ) {
+      this.autoNamingAttempted.add(session.id);
+      const firstUserMsg = session.messageHistory.find(
+        (m) => m.type === "user_message",
+      );
+      if (firstUserMsg && firstUserMsg.type === "user_message") {
+        this.onFirstTurnCompleted(session.id, firstUserMsg.content);
+      }
+    }
+  }
+
+  private emitResultPluginEvent(session: Session, msg: CLIResultMessage): void {
     void this.emitPluginEvent(this.createPluginEvent(
       "result.received",
       {
@@ -1161,23 +1194,6 @@ export class WsBridge {
         this.broadcastPluginInsights(session, pluginResult.insights);
       }
     });
-
-    // Trigger auto-naming after the first successful result for this session.
-    // Note: num_turns counts all internal tool-use turns, so it's typically > 1
-    // even on the first user interaction. We track per-session instead.
-    if (
-      !msg.is_error &&
-      this.onFirstTurnCompleted &&
-      !this.autoNamingAttempted.has(session.id)
-    ) {
-      this.autoNamingAttempted.add(session.id);
-      const firstUserMsg = session.messageHistory.find(
-        (m) => m.type === "user_message",
-      );
-      if (firstUserMsg && firstUserMsg.type === "user_message") {
-        this.onFirstTurnCompleted(session.id, firstUserMsg.content);
-      }
-    }
   }
 
   private handleStreamEvent(session: Session, msg: CLIStreamEventMessage) {
