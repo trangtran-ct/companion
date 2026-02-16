@@ -6,6 +6,7 @@ import { DiffViewer } from "./DiffViewer.js";
 import { UpdateBanner } from "./UpdateBanner.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
 import { ChatView } from "./ChatView.js";
+import { SessionStatusLine } from "./SessionStatusLine.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import type { PermissionRequest, ChatMessage, ContentBlock, SessionState, McpServerDetail } from "../types.js";
@@ -493,6 +494,26 @@ export function Playground() {
     store.addPermission(sessionId, PERM_BASH);
     store.addPermission(sessionId, PERM_DYNAMIC);
 
+    // Extra mock sessions for SessionStatusLine variants
+    const baseStatus: SessionState = {
+      session_id: "",
+      backend_type: "claude",
+      model: "claude-opus-4-6",
+      cwd: "/",
+      tools: [],
+      permissionMode: "default",
+      claude_code_version: "1.0.0",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      num_turns: 1,
+      is_compacting: false,
+    };
+    store.addSession({ ...baseStatus, session_id: "playground-session-high-ctx", context_used_percent: 85 });
+    store.addSession({ ...baseStatus, session_id: "playground-session-critical-ctx", context_used_percent: 95 });
+
     return () => {
       useStore.setState((s) => {
         const sessions = new Map(s.sessions);
@@ -505,6 +526,8 @@ export function Playground() {
         const streamingStartedAt = new Map(s.streamingStartedAt);
         const streamingOutputTokens = new Map(s.streamingOutputTokens);
 
+        sessions.delete("playground-session-high-ctx");
+        sessions.delete("playground-session-critical-ctx");
         if (prevSession) sessions.set(sessionId, prevSession); else sessions.delete(sessionId);
         if (prevMessages) messages.set(sessionId, prevMessages); else messages.delete(sessionId);
         if (prevPerms) pendingPermissions.set(sessionId, prevPerms); else pendingPermissions.delete(sessionId);
@@ -857,6 +880,21 @@ export function Playground() {
                 </svg>
                 <span className="text-xs text-cc-muted font-medium">Compacting context...</span>
               </div>
+            </Card>
+          </div>
+        </Section>
+
+        {/* ─── SessionStatusLine ──────────────────────────────── */}
+        <Section title="Session Status Line" description="Token context bar shown below the Composer for Claude Code sessions">
+          <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card">
+            <Card label="Normal context usage (62%)">
+              <SessionStatusLine sessionId={MOCK_SESSION_ID} />
+            </Card>
+            <Card label="High context usage (85%)">
+              <SessionStatusLine sessionId="playground-session-high-ctx" />
+            </Card>
+            <Card label="Critical context usage (95%)">
+              <SessionStatusLine sessionId="playground-session-critical-ctx" />
             </Card>
           </div>
         </Section>

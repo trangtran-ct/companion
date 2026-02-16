@@ -4,6 +4,7 @@ import { api } from "../api.js";
 import { MessageFeed } from "./MessageFeed.js";
 import { Composer } from "./Composer.js";
 import { PermissionBanner } from "./PermissionBanner.js";
+import { SessionStatusLine } from "./SessionStatusLine.js";
 
 export function ChatView({ sessionId }: { sessionId: string }) {
   const sessionPerms = useStore((s) => s.pendingPermissions.get(sessionId));
@@ -57,6 +58,9 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 
       {/* Composer */}
       <Composer sessionId={sessionId} />
+
+      {/* Session status line — Claude Code only */}
+      <SessionStatusLine sessionId={sessionId} />
     </div>
   );
 }
