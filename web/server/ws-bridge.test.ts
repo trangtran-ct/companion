@@ -839,6 +839,12 @@ describe("CLI message routing", () => {
     const state = bridge.getSession("s1")!.state;
     // (8000 + 2000) / 200000 * 100 = 5
     expect(state.context_used_percent).toBe(5);
+
+    // Should also broadcast a session_update with context_used_percent so the browser reflects it
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const sessionUpdate = calls.find((c: any) => c.type === "session_update" && c.session.context_used_percent !== undefined);
+    expect(sessionUpdate).toBeDefined();
+    expect(sessionUpdate.session.context_used_percent).toBe(5);
   });
 
   it("stream_event: broadcasts without storing", () => {

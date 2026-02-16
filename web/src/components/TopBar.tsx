@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from "react";
+import { useState, useRef, useSyncExternalStore } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
@@ -25,6 +25,9 @@ export function TopBar() {
   const activeTab = useStore((s) => s.activeTab);
   const setActiveTab = useStore((s) => s.setActiveTab);
   const [claudeMdOpen, setClaudeMdOpen] = useState(false);
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const setSessionName = useStore((s) => s.setSessionName);
   const changedFilesCount = useStore((s) => {
     if (!currentSessionId) return 0;
     const cwd =
@@ -79,14 +82,46 @@ export function TopBar() {
               }`}
             />
             {sessionName && (
-              <span className="text-[11px] font-medium text-cc-fg max-w-[9rem] sm:max-w-none truncate flex items-center gap-1" title={sessionName}>
-                {isAssistant && (
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-primary shrink-0">
-                    <path d="M8 0l1.5 5.2L14.8 4 9.8 6.5 14 11l-5.2-1.5L8 16l-1-6.5L1.2 11l5-4.5L1.2 4l5.3 1.2z" />
-                  </svg>
-                )}
-                {sessionName}
-              </span>
+              editingName !== null ? (
+                <input
+                  ref={nameInputRef}
+                  value={editingName}
+                  onChange={(e) => setEditingName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (currentSessionId && editingName.trim()) {
+                        setSessionName(currentSessionId, editingName.trim());
+                      }
+                      setEditingName(null);
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      setEditingName(null);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (currentSessionId && editingName.trim()) {
+                      setSessionName(currentSessionId, editingName.trim());
+                    }
+                    setEditingName(null);
+                  }}
+                  className="text-[11px] font-medium text-cc-fg bg-transparent border border-cc-border rounded px-1 py-0 outline-none focus:border-cc-primary/50 max-w-[9rem] sm:max-w-[16rem]"
+                  autoFocus
+                />
+              ) : (
+                <button
+                  onClick={() => !isAssistant && setEditingName(sessionName)}
+                  className={`text-[11px] font-medium text-cc-fg max-w-[9rem] sm:max-w-none truncate flex items-center gap-1 ${!isAssistant ? "hover:text-cc-primary cursor-pointer" : "cursor-default"}`}
+                  title={isAssistant ? sessionName : `${sessionName} — click to rename`}
+                >
+                  {isAssistant && (
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-primary shrink-0">
+                      <path d="M8 0l1.5 5.2L14.8 4 9.8 6.5 14 11l-5.2-1.5L8 16l-1-6.5L1.2 11l5-4.5L1.2 4l5.3 1.2z" />
+                    </svg>
+                  )}
+                  {sessionName}
+                </button>
+              )
             )}
             {!isConnected && (
               <button

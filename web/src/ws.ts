@@ -336,9 +336,9 @@ function handleParsedMessage(
       if (r.modelUsage) {
         for (const usage of Object.values(r.modelUsage)) {
           if (usage.contextWindow > 0) {
-            const pct = Math.round(
-              ((usage.inputTokens + usage.outputTokens) / usage.contextWindow) * 100
-            );
+            const totalTokens = usage.inputTokens + usage.outputTokens
+              + (usage.cacheReadInputTokens ?? 0) + (usage.cacheCreationInputTokens ?? 0);
+            const pct = Math.round((totalTokens / usage.contextWindow) * 100);
             sessionUpdates.context_used_percent = Math.max(0, Math.min(pct, 100));
           }
         }

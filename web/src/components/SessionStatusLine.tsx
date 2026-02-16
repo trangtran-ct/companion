@@ -21,8 +21,8 @@ export function SessionStatusLine({ sessionId }: { sessionId: string }) {
   const model = sessionData.model ? formatModelName(sessionData.model) : null;
   const contextPct = sessionData.context_used_percent ?? 0;
 
-  // Nothing to show until at least one turn has completed
-  if (!model && contextPct === 0) return null;
+  // Nothing to show until we have at least a model name
+  if (!model) return null;
 
   return (
     <div className="shrink-0 flex items-center gap-3 px-4 py-1 border-t border-cc-border/50 bg-cc-card text-[11px] select-none">
@@ -31,16 +31,14 @@ export function SessionStatusLine({ sessionId }: { sessionId: string }) {
           {model}
         </span>
       )}
-      {contextPct > 0 && (
-        <span className={`flex items-center gap-1.5 ${contextColor(contextPct)}`} title="Context window usage">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3 shrink-0">
-            <rect x="2" y="2" width="12" height="12" rx="1.5" />
-            <path d="M2 8h12" strokeOpacity="0.4" />
-            <path d={`M2 8 H${2 + (12 * Math.min(contextPct, 100)) / 100}`} strokeWidth="2" />
-          </svg>
-          <span>{Math.round(contextPct)}% ctx</span>
-        </span>
-      )}
+      <span className={`flex items-center gap-1.5 ${contextColor(contextPct)}`} title="Context window usage">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3 shrink-0">
+          <rect x="2" y="2" width="12" height="12" rx="1.5" />
+          <path d="M2 8h12" strokeOpacity="0.4" />
+          <path d={`M2 8 H${2 + (12 * Math.min(contextPct, 100)) / 100}`} strokeWidth="2" />
+        </svg>
+        <span>{Math.round(contextPct)}% ctx</span>
+      </span>
     </div>
   );
 }
